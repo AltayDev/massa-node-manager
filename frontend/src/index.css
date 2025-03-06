@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+}
+body {
+  background-color: #111827;
+  font-family: "Inter", sans-serif;
+}
+h1,
+h2,
+h3 {
+  font-weight: 600; /* Başlıklar için yarı kalın */
+}
+p {
+  font-weight: 400; /* Paragraflar için normal */
+}

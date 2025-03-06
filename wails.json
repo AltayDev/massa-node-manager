@@ -1,7 +1,6 @@
 {
-  "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "-t",
-  "outputfilename": "-t",
+  "name": "Massa Node Manager",
+  "outputfilename": "MassaNodeManager",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
