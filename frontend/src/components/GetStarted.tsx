@@ -52,7 +52,7 @@ const GetStarted: React.FC = () => {
             >
               <IoMdArrowBack className="mr-2" /> Go Back
             </button>
-            <h2 className="text-2xl font-semibold font-inter">
+            <h2 className="text-xl font-normal font-inter">
               {START_ITEMS[selectedStepIndex].title}
             </h2>
           </div>
