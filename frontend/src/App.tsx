@@ -21,7 +21,7 @@ function App() {
   const [currentView, setCurrentView] = useState("welcome"); // welcome, server-setup
 
   // SSH Connection State
-  const [host, setHost] = useState("localhost");
+  const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState(22);
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
