@@ -14,8 +14,9 @@ import (
 
 // App struct
 type App struct {
-	ctx       context.Context
-	sshClient *ssh.Client // Aktif SSH bağlantısını tutar
+	ctx          context.Context
+	sshClient    *ssh.Client // Aktif SSH bağlantısını tutar
+	nodePassword string      // Add this field
 }
 
 // NewApp creates a new App application struct
@@ -75,6 +76,7 @@ func (a *App) ConnectToServer(host string, port int, user string, password strin
 			fmt.Printf("Error closing existing SSH connection: %v\n", err)
 		}
 		a.sshClient = nil
+		a.nodePassword = "" // Reset node password on disconnect
 		fmt.Println("Previous SSH connection closed.")
 	}
 
@@ -113,7 +115,8 @@ func (a *App) DisconnectFromServer() (string, error) {
 	}
 
 	err := a.sshClient.Close()
-	a.sshClient = nil // Set to nil regardless of close error
+	a.sshClient = nil   // Set to nil regardless of close error
+	a.nodePassword = "" // Reset node password
 	if err != nil {
 		errMsg := fmt.Sprintf("Error while disconnecting: %v", err)
 		fmt.Println(errMsg)
@@ -181,6 +184,9 @@ func (a *App) SetupAndRunMassaComponents(nodePassword string, publicIp string, f
 	if a.sshClient == nil {
 		return "Error: No active SSH connection.", fmt.Errorf("no active SSH connection")
 	}
+
+	// Save the node password for future use with massa-client
+	a.nodePassword = nodePassword
 
 	// Sanitize publicIp for local testing scenarios
 	actualPublicIp := publicIp
@@ -706,6 +712,9 @@ func (a *App) StartMassaNode(nodePassword string) (string, error) {
 		return "Error: Node password is required to start Massa node.", fmt.Errorf("node password is required")
 	}
 
+	// Save the node password for future use with massa-client
+	a.nodePassword = nodePassword
+
 	// Define paths and screen names
 	installBaseDir := "/root/massa_node"
 	expectedNodeDir := installBaseDir + "/massa/massa-node"
@@ -886,4 +895,137 @@ fi
 
 	fmt.Println("Successfully fetched Massa node logs")
 	return strings.TrimSpace(combinedOutput), nil
+}
+
+// GetWalletInfo retrieves wallet information from the Massa client
+func (a *App) GetWalletInfo() (string, error) {
+	fmt.Println("Getting wallet information...")
+	return a.RunMassaClientCommand("wallet_info")
+}
+
+// GenerateWalletKey generates a new wallet key in the Massa client
+func (a *App) GenerateWalletKey() (string, error) {
+	fmt.Println("Generating new wallet key...")
+	return a.RunMassaClientCommand("wallet_generate_secret_key")
+}
+
+// ImportWalletKey imports a wallet key into the Massa client
+func (a *App) ImportWalletKey(secretKey string) (string, error) {
+	fmt.Println("Importing wallet key...")
+	return a.RunMassaClientCommand("wallet_add_secret_keys " + secretKey)
+}
+
+// GetAddressPublicKey gets the public key for specified addresses
+func (a *App) GetAddressPublicKey(address string) (string, error) {
+	fmt.Println("Getting public key for address:", address)
+	return a.RunMassaClientCommand("wallet_get_public_key " + address)
+}
+
+// BuyRolls buys rolls (stake) for a wallet address
+func (a *App) BuyRolls(address string, rollCount int, fee float64) (string, error) {
+	fmt.Printf("Buying %d rolls for address %s with fee %f\n", rollCount, address, fee)
+	cmd := fmt.Sprintf("buy_rolls %s %d %f", address, rollCount, fee)
+	return a.RunMassaClientCommand(cmd)
+}
+
+// SellRolls sells rolls (unstake) for a wallet address
+func (a *App) SellRolls(address string, rollCount int, fee float64) (string, error) {
+	fmt.Printf("Selling %d rolls for address %s with fee %f\n", rollCount, address, fee)
+	cmd := fmt.Sprintf("sell_rolls %s %d %f", address, rollCount, fee)
+	return a.RunMassaClientCommand(cmd)
+}
+
+// StartStaking starts staking with a wallet address
+func (a *App) StartStaking(address string) (string, error) {
+	fmt.Println("Starting staking with address:", address)
+	return a.RunMassaClientCommand("node_start_staking " + address)
+}
+
+// RunMassaClientCommand runs a command in the Massa client with a more reliable approach
+func (a *App) RunMassaClientCommand(command string) (string, error) {
+	if a.sshClient == nil {
+		return "Error: No active SSH connection.", fmt.Errorf("no active SSH connection")
+	}
+
+	// Find the massa-client directory
+	findClientDirCmd := "find /root/massa_node/massa -name massa-client -type d 2>/dev/null"
+	clientDirOutput, err := a.RunCommand(findClientDirCmd)
+	if err != nil || clientDirOutput == "" {
+		return "Error: Could not find massa-client directory.", fmt.Errorf("massa-client directory not found")
+	}
+
+	// Trim any whitespace from the directory path
+	clientDir := strings.TrimSpace(clientDirOutput)
+	fmt.Printf("Found massa-client directory: %s\n", clientDir)
+
+	// Create a temporary script to execute the command and capture its output
+	scriptContent := fmt.Sprintf(`#!/bin/bash
+cd "%s"
+PASSWORD="%s"
+COMMAND="%s"
+
+# Execute massa-client command and capture output
+./massa-client -p "$PASSWORD" <<EOF | tee /tmp/massa_client_result.txt
+$COMMAND
+exit
+EOF
+
+cat /tmp/massa_client_result.txt
+`, clientDir, a.nodePassword, command)
+
+	// Create a temporary script file
+	scriptPath := "/tmp/run_massa_client.sh"
+	createScriptCmd := fmt.Sprintf("cat > %s << 'EOFSCRIPT'\n%s\nEOFSCRIPT", scriptPath, scriptContent)
+	_, err = a.RunCommand(createScriptCmd)
+	if err != nil {
+		return fmt.Sprintf("Error creating temporary script: %v", err), err
+	}
+
+	// Make script executable
+	_, err = a.RunCommand(fmt.Sprintf("chmod +x %s", scriptPath))
+	if err != nil {
+		return fmt.Sprintf("Error making script executable: %v", err), err
+	}
+
+	// Execute the script
+	output, err := a.RunCommand(scriptPath)
+
+	// Clean up the script
+	a.RunCommand(fmt.Sprintf("rm -f %s /tmp/massa_client_result.txt", scriptPath))
+
+	if err != nil {
+		return fmt.Sprintf("Error executing massa-client command: %v\nOutput: %s", err, output), err
+	}
+
+	// Process output to extract the command results
+	// Typically massa-client will show a prompt at the beginning and possibly at the end
+	lines := strings.Split(output, "\n")
+	var resultLines []string
+	inResultSection := false
+
+	for _, line := range lines {
+		// Skip prompt/header lines
+		if strings.Contains(line, "Enter password:") ||
+			strings.Contains(line, "wallet_info") ||
+			strings.Contains(line, "wallet_generate_secret_key") ||
+			strings.Contains(line, "wallet_add_secret_keys") ||
+			strings.Contains(line, "buy_rolls") ||
+			strings.Contains(line, "sell_rolls") ||
+			strings.Contains(line, "node_start_staking") {
+			inResultSection = true
+			continue
+		}
+
+		// Skip exit command line
+		if strings.Contains(line, "exit") {
+			inResultSection = false
+			continue
+		}
+
+		if inResultSection {
+			resultLines = append(resultLines, line)
+		}
+	}
+
+	return strings.Join(resultLines, "\n"), nil
 }

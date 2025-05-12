@@ -1,6 +1,13 @@
-import { useState, Dispatch, SetStateAction, useRef, useEffect } from "react";
+import React, {
+  useState,
+  Dispatch,
+  SetStateAction,
+  useRef,
+  useEffect,
+} from "react";
 import StartNodeModal from "./StartNodeModal";
 import NodeLogsViewer from "./NodeLogsViewer";
+import WalletManager from "./WalletManager";
 
 interface ServerSetupScreenProps {
   setCurrentView: Dispatch<SetStateAction<string>>;
@@ -45,6 +52,21 @@ interface ServerSetupScreenProps {
   handleStartMassaNode: () => Promise<void>;
   fetchNodeLogs: () => Promise<string>;
   isNodeRunning: boolean;
+  // Wallet management functions
+  fetchWalletInfo: () => Promise<string>;
+  generateWalletKey: () => Promise<string>;
+  importWalletKey: (secretKey: string) => Promise<string>;
+  buyRolls: (
+    address: string,
+    rollCount: number,
+    fee: number
+  ) => Promise<string>;
+  sellRolls: (
+    address: string,
+    rollCount: number,
+    fee: number
+  ) => Promise<string>;
+  startStaking: (address: string) => Promise<string>;
 }
 
 const ServerSetupScreen: React.FC<ServerSetupScreenProps> = ({
@@ -90,6 +112,12 @@ const ServerSetupScreen: React.FC<ServerSetupScreenProps> = ({
   handleStartMassaNode,
   fetchNodeLogs,
   isNodeRunning,
+  fetchWalletInfo,
+  generateWalletKey,
+  importWalletKey,
+  buyRolls,
+  sellRolls,
+  startStaking,
 }) => {
   const logRef = useRef<HTMLPreElement>(null);
   const [isStartNodeModalOpen, setIsStartNodeModalOpen] = useState(false);
@@ -746,11 +774,28 @@ const ServerSetupScreen: React.FC<ServerSetupScreenProps> = ({
 
               {/* Node Logs Section - Add this section after the Massa Services Setup section */}
               {nodeIsInstalled && (
-                <NodeLogsViewer
-                  isConnected={isConnected}
-                  fetchNodeLogs={fetchNodeLogs}
-                  isNodeRunning={isNodeRunning}
-                />
+                <>
+                  <NodeLogsViewer
+                    isConnected={isConnected}
+                    fetchNodeLogs={fetchNodeLogs}
+                    isNodeRunning={isNodeRunning}
+                  />
+
+                  {/* Wallet Manager Section */}
+                  <div className="mt-6">
+                    <WalletManager
+                      isConnected={isConnected}
+                      isNodeRunning={isNodeRunning}
+                      nodePassword={nodePassword}
+                      fetchWalletInfo={fetchWalletInfo}
+                      generateWalletKey={generateWalletKey}
+                      importWalletKey={importWalletKey}
+                      buyRolls={buyRolls}
+                      sellRolls={sellRolls}
+                      startStaking={startStaking}
+                    />
+                  </div>
+                </>
               )}
             </>
           )}

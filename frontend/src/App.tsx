@@ -17,6 +17,7 @@ import {
 import WelcomeScreen from "./components/WelcomeScreen";
 import ServerSetupScreen from "./components/ServerSetupScreen";
 import NodeLogsViewer from "./components/NodeLogsViewer";
+// WalletManager will be imported in ServerSetupScreen to avoid circular dependencies
 
 function App() {
   // View state
@@ -61,6 +62,144 @@ function App() {
   // Node Logs State
   const [nodeLogs, setNodeLogs] = useState("");
   const [isLoadingNodeLogs, setIsLoadingNodeLogs] = useState(false);
+
+  // Wallet management functions
+  const handleGetWalletInfo = async () => {
+    if (!isConnected || !isNodeRunning()) {
+      toast.error(
+        "Cannot connect to Massa node. Please make sure the node is running."
+      );
+      return "";
+    }
+    try {
+      // Import dynamically to avoid linter errors when the backend functions don't exist yet
+      const { GetWalletInfo } = await import("../wailsjs/go/main/App");
+      return await GetWalletInfo();
+    } catch (error: any) {
+      console.error("Error getting wallet info:", error);
+      toast.error(`Failed to get wallet info: ${error?.message || error}`);
+      return `Error: ${error?.message || error}`;
+    }
+  };
+
+  const handleGenerateWalletKey = async () => {
+    if (!isConnected || !isNodeRunning()) {
+      toast.error(
+        "Cannot connect to Massa node. Please make sure the node is running."
+      );
+      return "";
+    }
+    try {
+      // Import dynamically to avoid linter errors
+      const { GenerateWalletKey } = await import("../wailsjs/go/main/App");
+      return await GenerateWalletKey();
+    } catch (error: any) {
+      console.error("Error generating wallet key:", error);
+      toast.error(`Failed to generate wallet key: ${error?.message || error}`);
+      return `Error: ${error?.message || error}`;
+    }
+  };
+
+  const handleImportWalletKey = async (secretKey: string) => {
+    if (!isConnected || !isNodeRunning()) {
+      toast.error(
+        "Cannot connect to Massa node. Please make sure the node is running."
+      );
+      return "";
+    }
+    if (!secretKey.trim()) {
+      toast.error("Secret key is required");
+      return "Error: Secret key is required";
+    }
+    try {
+      // Import dynamically to avoid linter errors
+      const { ImportWalletKey } = await import("../wailsjs/go/main/App");
+      return await ImportWalletKey(secretKey);
+    } catch (error: any) {
+      console.error("Error importing wallet key:", error);
+      toast.error(`Failed to import wallet key: ${error?.message || error}`);
+      return `Error: ${error?.message || error}`;
+    }
+  };
+
+  const handleBuyRolls = async (
+    address: string,
+    rollCount: number,
+    fee: number
+  ) => {
+    if (!isConnected || !isNodeRunning()) {
+      toast.error(
+        "Cannot connect to Massa node. Please make sure the node is running."
+      );
+      return "";
+    }
+    if (!address) {
+      toast.error("Address is required");
+      return "Error: Address is required";
+    }
+    try {
+      // Import dynamically to avoid linter errors
+      const { BuyRolls } = await import("../wailsjs/go/main/App");
+      return await BuyRolls(address, rollCount, fee);
+    } catch (error: any) {
+      console.error("Error buying rolls:", error);
+      toast.error(`Failed to buy rolls: ${error?.message || error}`);
+      return `Error: ${error?.message || error}`;
+    }
+  };
+
+  const handleSellRolls = async (
+    address: string,
+    rollCount: number,
+    fee: number
+  ) => {
+    if (!isConnected || !isNodeRunning()) {
+      toast.error(
+        "Cannot connect to Massa node. Please make sure the node is running."
+      );
+      return "";
+    }
+    if (!address) {
+      toast.error("Address is required");
+      return "Error: Address is required";
+    }
+    try {
+      // Import dynamically to avoid linter errors
+      const { SellRolls } = await import("../wailsjs/go/main/App");
+      return await SellRolls(address, rollCount, fee);
+    } catch (error: any) {
+      console.error("Error selling rolls:", error);
+      toast.error(`Failed to sell rolls: ${error?.message || error}`);
+      return `Error: ${error?.message || error}`;
+    }
+  };
+
+  const handleStartStaking = async (address: string) => {
+    if (!isConnected || !isNodeRunning()) {
+      toast.error(
+        "Cannot connect to Massa node. Please make sure the node is running."
+      );
+      return "";
+    }
+    if (!address) {
+      toast.error("Address is required");
+      return "Error: Address is required";
+    }
+    try {
+      // Import dynamically to avoid linter errors
+      const { StartStaking } = await import("../wailsjs/go/main/App");
+      return await StartStaking(address);
+    } catch (error: any) {
+      console.error("Error starting staking:", error);
+      toast.error(`Failed to start staking: ${error?.message || error}`);
+      return `Error: ${error?.message || error}`;
+    }
+  };
+
+  // Helper function to check if node is running
+  const isNodeRunning = () => {
+    return massaNodeStatus.toLowerCase().includes("running");
+  };
 
   const handleRefreshServerStats = async () => {
     if (!isConnected) {
@@ -526,7 +665,14 @@ function App() {
           isStartingNode={isStartingNode}
           handleStartMassaNode={handleStartMassaNode}
           fetchNodeLogs={fetchNodeLogs}
-          isNodeRunning={massaNodeStatus.toLowerCase().includes("running")}
+          isNodeRunning={isNodeRunning()}
+          // Pass wallet management functions
+          fetchWalletInfo={handleGetWalletInfo}
+          generateWalletKey={handleGenerateWalletKey}
+          importWalletKey={handleImportWalletKey}
+          buyRolls={handleBuyRolls}
+          sellRolls={handleSellRolls}
+          startStaking={handleStartStaking}
         />
       )}
     </div>
