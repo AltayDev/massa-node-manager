@@ -16,3 +16,5 @@ export function Greet(arg1:string):Promise<string>;
 export function RunCommand(arg1:string):Promise<string>;
 
 export function SetupAndRunMassaComponents(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+
+export function StartMassaNode(arg1:string):Promise<string>;

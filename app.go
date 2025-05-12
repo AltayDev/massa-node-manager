@@ -531,31 +531,79 @@ func (a *App) GetServerStats() (string, error) {
 	var fullOutput strings.Builder
 	var lastError error
 
+	// Improved commands for more reliable and better formatted output
 	commands := map[string]string{
 		"Uptime":    "uptime -p",
-		"CPU Usage": "top -bn1 | grep -i 'cpu(s)' | awk '{print \"CPU Usage: \" $2 + $4 \"%\"}'", // More direct sum of us + sy
-		"RAM Usage": "free -m | awk 'NR==2{printf \"RAM: %s/%sMB (%.2f%% used)\", $3,$2,$3*100/$2}'",
-		"Disk Root": "df -h / | awk 'NR==2{printf \"Disk /: %s/%s (%s used)\", $3,$2,$5}'",
+		"CPU Usage": "top -bn1 | grep -i 'cpu(s)' | awk '{print $2 + $4 \"%\"}'", // Just the percentage sum
+		// Get the RAM info for display purposes
+		"RAM Usage": "free -m | awk 'NR==2{printf \"%dMB/%dMB (%.1f%%)\", $3,$2,$3*100.0/$2}'",
+		"Disk Root": "df -h / | awk 'NR==2{printf \"%s/%s (%s)\", $3,$2,$5}'", // Human readable format
 	}
 
+	serverInfo := map[string]string{}
+
 	for name, cmd := range commands {
-		fullOutput.WriteString(fmt.Sprintf("Fetching %s...\nExecuting: %s\n", name, cmd))
+		// Run the command silently without logging details to the output
 		output, err := a.RunCommand(cmd)
 		trimmedOutput := strings.TrimSpace(output)
+
 		if err != nil {
-			errMsg := fmt.Sprintf("Error fetching %s: %v. Output: %s\n", name, err, trimmedOutput)
-			fmt.Println(errMsg)
-			fullOutput.WriteString(errMsg)
-			lastError = fmt.Errorf("failed to fetch %s: %w", name, err) // Keep first error, but try all commands
+			errMsg := fmt.Sprintf("Error fetching %s: %v", name, err)
+			fmt.Println(errMsg) // log to console only
+			serverInfo[name] = "Error"
+			if lastError == nil {
+				lastError = fmt.Errorf("failed to fetch %s: %w", name, err)
+			}
 		} else {
-			fullOutput.WriteString(fmt.Sprintf("%s: %s\n\n", name, trimmedOutput))
+			// Store the result in our map
+			serverInfo[name] = trimmedOutput
 		}
 	}
 
+	// Format output in a cleaner way for display
+	fullOutput.WriteString("=== Server Information ===\n\n")
+
+	if uptime, ok := serverInfo["Uptime"]; ok {
+		fullOutput.WriteString(fmt.Sprintf("Server Uptime: %s\n", uptime))
+	}
+
+	if cpuUsage, ok := serverInfo["CPU Usage"]; ok {
+		fullOutput.WriteString(fmt.Sprintf("CPU Usage: %s\n", cpuUsage))
+	}
+
+	if ramUsage, ok := serverInfo["RAM Usage"]; ok {
+		fullOutput.WriteString(fmt.Sprintf("RAM Usage: %s\n", ramUsage))
+	}
+
+	if diskRoot, ok := serverInfo["Disk Root"]; ok {
+		fullOutput.WriteString(fmt.Sprintf("Disk Usage: %s\n", diskRoot))
+	}
+
+	// Add a divider
+	fullOutput.WriteString("\n=== System Process Information ===\n\n")
+
+	// Get list of running processes by CPU usage
+	topProcessesCmd := "ps -eo pid,pcpu,pmem,comm --sort=-pcpu | head -n 6"
+	topOutput, topErr := a.RunCommand(topProcessesCmd)
+	if topErr == nil {
+		fullOutput.WriteString("Top Processes (by CPU):\n")
+		fullOutput.WriteString(topOutput)
+		fullOutput.WriteString("\n")
+	}
+
+	// Get screen sessions
+	screenListCmd := "screen -ls"
+	screenOutput, screenErr := a.RunCommand(screenListCmd)
+	if screenErr == nil && strings.Contains(screenOutput, "Socket") {
+		fullOutput.WriteString("Active Screen Sessions:\n")
+		fullOutput.WriteString(screenOutput)
+	} else {
+		fullOutput.WriteString("No active screen sessions found.\n")
+	}
+
 	log := fullOutput.String()
-	fmt.Println("Server stats fetched:")
-	fmt.Println(log)
-	return log, lastError // Return all fetched info, and the first error encountered, if any
+	fmt.Println("Server stats fetched.")
+	return log, lastError
 }
 
 // CheckMassaNodeStatus checks the live status of the Massa node screen session and its logs.
@@ -645,4 +693,130 @@ func (a *App) CheckMassaNodeStatus() (string, error) {
 		fmt.Printf("Screen not running, and unexpected log status: %s\n", trimmedLogStatus)
 		return "STOPPED_UNKNOWN_LOG_STATUS", nil
 	}
+}
+
+// StartMassaNode starts the Massa node when it's installed but not running
+func (a *App) StartMassaNode(nodePassword string) (string, error) {
+	fmt.Println("StartMassaNode called")
+	if a.sshClient == nil {
+		return "Error: No active SSH connection.", fmt.Errorf("no active SSH connection")
+	}
+
+	if nodePassword == "" {
+		return "Error: Node password is required to start Massa node.", fmt.Errorf("node password is required")
+	}
+
+	// Define paths and screen names
+	installBaseDir := "/root/massa_node"
+	expectedNodeDir := installBaseDir + "/massa/massa-node"
+	expectedClientDir := installBaseDir + "/massa/massa-client"
+	nodeLogPath := expectedNodeDir + "/logs.txt"
+	nodeScreenName := "massa_node"
+	clientScreenName := "massa_client"
+
+	// Check if node is installed first
+	checkInstallCmd := fmt.Sprintf("if [ -d \"%s\" ] && [ -f \"%s/massa-node\" ]; then echo 'INSTALLED'; else echo 'NOT_INSTALLED'; fi", expectedNodeDir, expectedNodeDir)
+	installStatusOutput, err := a.RunCommand(checkInstallCmd)
+	trimmedInstallStatus := strings.TrimSpace(installStatusOutput)
+
+	if err != nil || trimmedInstallStatus != "INSTALLED" {
+		return "Error: Massa node is not installed or executable missing. Please install it first.", fmt.Errorf("node not installed")
+	}
+
+	var logBuffer strings.Builder
+	logBuffer.WriteString("Starting Massa node...\n")
+
+	// Check if screens are already running
+	checkNodeScreenCmd := fmt.Sprintf("screen -list | grep -q %s", nodeScreenName)
+	_, nodeScreenErr := a.RunCommand(checkNodeScreenCmd)
+
+	if nodeScreenErr == nil {
+		logBuffer.WriteString("Massa node screen is already running. No need to start.\n")
+		return logBuffer.String(), nil
+	}
+
+	// Ensure the node executable is executable
+	chmodCmd := fmt.Sprintf("chmod +x %s/massa-node", expectedNodeDir)
+	_, chmodErr := a.RunCommand(chmodCmd)
+	if chmodErr != nil {
+		errMsg := fmt.Sprintf("Failed to make node executable: %v", chmodErr)
+		logBuffer.WriteString(errMsg + "\n")
+		return logBuffer.String(), fmt.Errorf(errMsg)
+	}
+
+	// Create log directory and clear old log if it exists
+	rmLogCmd := fmt.Sprintf("rm -f %s && touch %s", nodeLogPath, nodeLogPath)
+	_, rmLogErr := a.RunCommand(rmLogCmd)
+	if rmLogErr != nil {
+		logBuffer.WriteString(fmt.Sprintf("Warning: Failed to clear old log file: %v\n", rmLogErr))
+	}
+
+	// Start Massa Node in a screen session
+	nodeStartCmd := fmt.Sprintf("cd '%s' && screen -dmS %s /bin/bash -c './massa-node -p \"%s\" |& tee \"%s\"'",
+		expectedNodeDir, nodeScreenName, nodePassword, nodeLogPath)
+	_, nodeStartErr := a.RunCommand(nodeStartCmd)
+
+	if nodeStartErr != nil {
+		errMsg := fmt.Sprintf("Failed to start Massa node: %v", nodeStartErr)
+		logBuffer.WriteString(errMsg + "\n")
+		return logBuffer.String(), fmt.Errorf(errMsg)
+	}
+
+	logBuffer.WriteString("Massa node screen started. Waiting to verify...\n")
+
+	// Wait a few seconds before checking
+	time.Sleep(5 * time.Second)
+
+	// Verify node screen is running
+	_, nodeCheckErr := a.RunCommand(checkNodeScreenCmd)
+	if nodeCheckErr != nil {
+		logBuffer.WriteString("Warning: Could not verify node screen is running after start attempt.\n")
+	} else {
+		logBuffer.WriteString("Confirmed: Massa node screen is running.\n")
+	}
+
+	// Also start the client if available
+	checkClientExeCmd := fmt.Sprintf("if [ -f \"%s/massa-client\" ]; then echo 'CLIENT_FOUND'; else echo 'CLIENT_NOT_FOUND'; fi", expectedClientDir)
+	clientExeOutput, _ := a.RunCommand(checkClientExeCmd)
+	trimmedClientExe := strings.TrimSpace(clientExeOutput)
+
+	if trimmedClientExe == "CLIENT_FOUND" {
+		logBuffer.WriteString("Massa client found. Attempting to start client screen...\n")
+
+		// Check if client screen is already running
+		checkClientScreenCmd := fmt.Sprintf("screen -list | grep -q %s", clientScreenName)
+		_, clientScreenErr := a.RunCommand(checkClientScreenCmd)
+
+		if clientScreenErr == nil {
+			logBuffer.WriteString("Massa client screen is already running.\n")
+		} else {
+			// Make client executable
+			chmodClientCmd := fmt.Sprintf("chmod +x %s/massa-client", expectedClientDir)
+			_, chmodClientErr := a.RunCommand(chmodClientCmd)
+			if chmodClientErr != nil {
+				logBuffer.WriteString(fmt.Sprintf("Warning: Failed to make client executable: %v\n", chmodClientErr))
+			}
+
+			// Start client screen
+			clientStartCmd := fmt.Sprintf("cd '%s' && screen -dmS %s /bin/bash -c './massa-client -p \"%s\"'",
+				expectedClientDir, clientScreenName, nodePassword)
+			_, clientStartErr := a.RunCommand(clientStartCmd)
+
+			if clientStartErr != nil {
+				logBuffer.WriteString(fmt.Sprintf("Warning: Failed to start Massa client: %v\n", clientStartErr))
+			} else {
+				logBuffer.WriteString("Massa client screen started.\n")
+			}
+		}
+	} else {
+		logBuffer.WriteString("Massa client executable not found. Only node was started.\n")
+	}
+
+	logBuffer.WriteString("\nMassa node startup complete.\n")
+	logBuffer.WriteString("To check screens: screen -ls\n")
+	logBuffer.WriteString("To attach to node: screen -r " + nodeScreenName + "\n")
+	logBuffer.WriteString("To attach to client: screen -r " + clientScreenName + "\n")
+	logBuffer.WriteString("Node logs are at: " + nodeLogPath + "\n")
+
+	return logBuffer.String(), nil
 }
