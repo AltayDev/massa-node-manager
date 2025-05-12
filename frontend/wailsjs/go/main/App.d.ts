@@ -9,6 +9,8 @@ export function ConnectToServer(arg1:string,arg2:number,arg3:string,arg4:string)
 
 export function DisconnectFromServer():Promise<string>;
 
+export function GetMassaNodeLogs():Promise<string>;
+
 export function GetServerStats():Promise<string>;
 
 export function Greet(arg1:string):Promise<string>;

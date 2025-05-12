@@ -1,5 +1,6 @@
 import { useState, Dispatch, SetStateAction, useRef, useEffect } from "react";
 import StartNodeModal from "./StartNodeModal";
+import NodeLogsViewer from "./NodeLogsViewer";
 
 interface ServerSetupScreenProps {
   setCurrentView: Dispatch<SetStateAction<string>>;
@@ -42,6 +43,8 @@ interface ServerSetupScreenProps {
   isCheckingNodeStatus: boolean;
   isStartingNode: boolean;
   handleStartMassaNode: () => Promise<void>;
+  fetchNodeLogs: () => Promise<string>;
+  isNodeRunning: boolean;
 }
 
 const ServerSetupScreen: React.FC<ServerSetupScreenProps> = ({
@@ -85,6 +88,8 @@ const ServerSetupScreen: React.FC<ServerSetupScreenProps> = ({
   isCheckingNodeStatus,
   isStartingNode,
   handleStartMassaNode,
+  fetchNodeLogs,
+  isNodeRunning,
 }) => {
   const logRef = useRef<HTMLPreElement>(null);
   const [isStartNodeModalOpen, setIsStartNodeModalOpen] = useState(false);
@@ -737,6 +742,15 @@ const ServerSetupScreen: React.FC<ServerSetupScreenProps> = ({
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Node Logs Section - Add this section after the Massa Services Setup section */}
+              {nodeIsInstalled && (
+                <NodeLogsViewer
+                  isConnected={isConnected}
+                  fetchNodeLogs={fetchNodeLogs}
+                  isNodeRunning={isNodeRunning}
+                />
               )}
             </>
           )}

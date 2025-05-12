@@ -18,6 +18,10 @@ export function DisconnectFromServer() {
   return window['go']['main']['App']['DisconnectFromServer']();
 }
 
+export function GetMassaNodeLogs() {
+  return window['go']['main']['App']['GetMassaNodeLogs']();
+}
+
 export function GetServerStats() {
   return window['go']['main']['App']['GetServerStats']();
 }

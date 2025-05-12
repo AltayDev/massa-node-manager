@@ -10,11 +10,13 @@ import {
   GetServerStats as BackendGetServerStats,
   CheckMassaNodeStatus as BackendCheckMassaNodeStatus,
   StartMassaNode as BackendStartMassaNode,
+  GetMassaNodeLogs as BackendGetMassaNodeLogs,
 } from "../wailsjs/go/main/App";
 
 // Import components
 import WelcomeScreen from "./components/WelcomeScreen";
 import ServerSetupScreen from "./components/ServerSetupScreen";
+import NodeLogsViewer from "./components/NodeLogsViewer";
 
 function App() {
   // View state
@@ -55,6 +57,10 @@ function App() {
   const [massaNodeStatus, setMassaNodeStatus] = useState("Checking...");
   const [isCheckingNodeStatus, setIsCheckingNodeStatus] = useState(false);
   const [isStartingNode, setIsStartingNode] = useState(false);
+
+  // Node Logs State
+  const [nodeLogs, setNodeLogs] = useState("");
+  const [isLoadingNodeLogs, setIsLoadingNodeLogs] = useState(false);
 
   const handleRefreshServerStats = async () => {
     if (!isConnected) {
@@ -418,6 +424,23 @@ function App() {
     }
   };
 
+  const fetchNodeLogs = async () => {
+    if (!isConnected) return "";
+
+    setIsLoadingNodeLogs(true);
+    try {
+      const logs = await BackendGetMassaNodeLogs();
+      setNodeLogs(logs);
+      return logs;
+    } catch (error: any) {
+      console.error("Error fetching node logs:", error);
+      toast.error(`Error fetching logs: ${error?.message || error}`);
+      return "Error fetching logs. Please try again.";
+    } finally {
+      setIsLoadingNodeLogs(false);
+    }
+  };
+
   useEffect(() => {
     if (isConnected) {
       // Initial fetch on connect
@@ -502,6 +525,8 @@ function App() {
           isCheckingNodeStatus={isCheckingNodeStatus}
           isStartingNode={isStartingNode}
           handleStartMassaNode={handleStartMassaNode}
+          fetchNodeLogs={fetchNodeLogs}
+          isNodeRunning={massaNodeStatus.toLowerCase().includes("running")}
         />
       )}
     </div>

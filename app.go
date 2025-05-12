@@ -820,3 +820,70 @@ func (a *App) StartMassaNode(nodePassword string) (string, error) {
 
 	return logBuffer.String(), nil
 }
+
+// GetMassaNodeLogs fetches the logs from the massa_node screen session.
+func (a *App) GetMassaNodeLogs() (string, error) {
+	fmt.Println("Fetching Massa node logs...")
+	if a.sshClient == nil {
+		errMsg := "Error: No active SSH connection."
+		fmt.Println(errMsg)
+		return errMsg, fmt.Errorf(errMsg)
+	}
+
+	// Command to get the most recent logs from the massa_node screen session
+	// We use "screen -S massa_node -X hardcopy /tmp/massa_node_logs.txt" to create a snapshot of the screen
+	// and then read the file content
+	command := `
+if screen -list | grep -q "massa_node"; then
+  # Create a snapshot of the screen content
+  screen -S massa_node -X hardcopy /tmp/massa_node_logs.txt
+  # Give it a moment to write the file
+  sleep 0.5
+  # Check if the file exists
+  if [ -f /tmp/massa_node_logs.txt ]; then
+    # Get the last 500 lines (adjust as needed)
+    tail -n 500 /tmp/massa_node_logs.txt
+    # Clean up
+    rm /tmp/massa_node_logs.txt
+  else
+    echo "Error: Failed to create logs snapshot."
+  fi
+else
+  echo "Massa node screen session not found."
+fi
+`
+
+	session, err := a.sshClient.NewSession()
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to create session: %v", err)
+		fmt.Println(errMsg)
+		return errMsg, err
+	}
+	defer session.Close()
+
+	var stdoutBuf bytes.Buffer
+	var stderrBuf bytes.Buffer
+	session.Stdout = &stdoutBuf
+	session.Stderr = &stderrBuf
+
+	err = session.Run(command)
+	stdoutStr := stdoutBuf.String()
+	stderrStr := stderrBuf.String()
+
+	// Combine stdout and stderr for the primary output
+	combinedOutput := stdoutStr
+	if stderrStr != "" {
+		if combinedOutput != "" && !strings.HasSuffix(combinedOutput, "\n") {
+			combinedOutput += "\n"
+		}
+		combinedOutput += stderrStr
+	}
+
+	if err != nil {
+		fmt.Printf("Error fetching Massa node logs: %v\nStdout:\n%s\nStderr:\n%s\n", err, stdoutStr, stderrStr)
+		return strings.TrimSpace(combinedOutput), err
+	}
+
+	fmt.Println("Successfully fetched Massa node logs")
+	return strings.TrimSpace(combinedOutput), nil
+}
